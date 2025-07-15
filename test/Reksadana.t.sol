@@ -90,4 +90,81 @@ contract ReksadanaTest is Test {
 
         vm.stopPrank();
     }
+
+    function test_SetOwner() public {
+        // Owner deploy and become owner
+        address owner = makeAddr("owner");
+        vm.startPrank(owner);
+        reksadana = new Reksadana();
+        assertEq(reksadana.owner(), owner);
+        vm.stopPrank();
+
+        // User try to set owner
+        address user = makeAddr("user");
+        vm.startPrank(user);
+        vm.expectRevert("Not the owner");
+        reksadana.setOwner(user);
+        vm.stopPrank();
+
+        // Owner change the ownership to user
+        vm.startPrank(owner);
+        vm.expectEmit(true, true, true, true);
+        emit Reksadana.SetNewOwner(owner, user);
+        reksadana.setOwner(user);
+        assertEq(reksadana.owner(), user);
+        vm.stopPrank();
+    }
+
+    function test_SetFeeRate() public {
+        // Owner deploy reksadana and set the fee rate to 10%
+        address owner = makeAddr("owner");
+        vm.startPrank(owner);
+        reksadana = new Reksadana();
+        vm.expectEmit(true, true, true, true);
+        emit Reksadana.SetFeeRate(1000);
+        reksadana.setFeeRate(1000);
+        assertEq(reksadana.feeRate(), 1000);
+        vm.stopPrank();
+
+        // Should revert if fee rate is greater than 10%
+        vm.startPrank(owner);
+        vm.expectRevert("Fee rate must be less than 10%");
+        reksadana.setFeeRate(1001);
+        vm.stopPrank();
+
+        // Should rever if user try to set fee rate
+        address user = makeAddr("user");
+        vm.startPrank(user);
+        vm.expectRevert("Not the owner");
+        reksadana.setFeeRate(1000);
+        vm.stopPrank();
+    }
+
+    function test_WithdrawWithFee() public {
+        // Owner deploy and set the fee rate
+        address owner = makeAddr("owner");
+        vm.startPrank(owner);
+        reksadana = new Reksadana();
+        reksadana.setFeeRate(100);
+        vm.stopPrank();
+
+        // User deposit 1000 USDC
+        address user = makeAddr("user");
+        deal(usdc, user, 1000e6);
+
+        vm.startPrank(user);
+        IERC20(usdc).approve(address(reksadana), 1000e6);
+        vm.expectEmit(true, true, true, true);
+        emit Reksadana.Deposit(user, 1000e6, 1000e6);
+        reksadana.deposit(1000e6);
+        vm.stopPrank();
+
+        // User withdraw 500 Shares
+        vm.startPrank(user);
+        reksadana.withdraw(500e6);
+        console.log("User USDC balance:", IERC20(usdc).balanceOf(user));
+        console.log("User Shares balance:", reksadana.balanceOf(user));
+        console.log("Collected fee:", reksadana.collectedFee());
+        vm.stopPrank();
+    }
 }

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {ERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {console} from "../lib/forge-std/src/Test.sol";
 import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ISwapRouter} from "../lib/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 
@@ -61,17 +62,20 @@ contract Reksadana is ERC20 {
     event Withdraw(address indexed user, uint256 shares, uint256 amount);
     event CollectFee(uint256 fee);
     event SetFeeRate(uint256 feeRate);
+    event SetNewOwner(address indexed oldOwner, address indexed newOwner);
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "Not owner");
+        require(msg.sender == owner, "Not the owner");
         _;
     }
 
     function setOwner(address _owner) public onlyOwner {
         owner = _owner;
+        emit SetNewOwner(msg.sender, _owner);
     }
 
     function setFeeRate(uint256 _feeRate) public onlyOwner {
+        require(_feeRate <= 1000, "Fee rate must be less than 10%");
         feeRate = _feeRate;
         emit SetFeeRate(_feeRate);
     }
