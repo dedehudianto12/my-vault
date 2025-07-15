@@ -38,6 +38,10 @@ contract Reksadana is ERC20 {
 
     error ZeroAmount();
 
+    uint256 public feeRate;
+    uint256 public collectedFee;
+    address public owner;
+
     address uniswapRouter = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
 
     address weth = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1;
@@ -48,11 +52,29 @@ contract Reksadana is ERC20 {
     address wbtcFeed = 0x6ce185860a4963106506C203335A2910413708e9;
     address wethFeed = 0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612;
 
-    constructor() ERC20("Reksadana", "RDN") {}
+    constructor() ERC20("Reksadana", "RDN") {
+        owner = msg.sender;
+    }
 
     // Events
     event Deposit(address indexed user, uint256 amount, uint256 shares);
     event Withdraw(address indexed user, uint256 shares, uint256 amount);
+    event CollectFee(uint256 fee);
+    event SetFeeRate(uint256 feeRate);
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not owner");
+        _;
+    }
+
+    function setOwner(address _owner) public onlyOwner {
+        owner = _owner;
+    }
+
+    function setFeeRate(uint256 _feeRate) public onlyOwner {
+        feeRate = _feeRate;
+        emit SetFeeRate(_feeRate);
+    }
 
     // Total asset adalah jumlah WBTC + WETH dalam bentuk USDC
     function totalReksadanaAsset() public view returns (uint256) {
@@ -202,6 +224,15 @@ contract Reksadana is ERC20 {
 
         // transfer usdc dari reksadana ke user
         uint256 amount = IERC20(usdc).balanceOf(address(this));
+
+        // hitung fee
+        if (amount > 0 && feeRate > 0) {
+            uint256 fee = (amount * feeRate) / 10000;
+            collectedFee += fee;
+            amount -= fee;
+            emit CollectFee(fee);
+        }
+
         IERC20(usdc).transfer(msg.sender, amount);
 
         // emit event
