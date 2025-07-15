@@ -31,20 +31,12 @@ interface AggregatorV3Interface {
             uint256 updatedAt,
             uint80 answeredInRound
         );
-    function latestRoundData()
-        external
-        view
-        returns (
-            uint80 roundId,
-            int256 answer,
-            uint256 startedAt,
-            uint256 updatedAt,
-            uint80 answeredInRound
-        );
 }
 
 contract Reksadana is ERC20 {
     error InsufficientBalance();
+
+    error ZeroAmount();
 
     address uniswapRouter = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
 
@@ -63,7 +55,7 @@ contract Reksadana is ERC20 {
     event Withdraw(address indexed user, uint256 shares, uint256 amount);
 
     // Total asset adalah jumlah WBTC + WETH dalam bentuk USDC
-    function totalAsset() public view returns (uint256) {
+    function totalReksadanaAsset() public view returns (uint256) {
         // Ambil harga USDC ke USD
         (, int256 usdcPrice, , , ) = AggregatorV3Interface(baseFeed)
             .latestRoundData();
@@ -92,12 +84,12 @@ contract Reksadana is ERC20 {
             revert InsufficientBalance();
         }
 
-        // ambil usdc dari user
-        IERC20(usdc).transferFrom(msg.sender, address(this), amount);
         // total asset
-        uint256 totalAsset = totalAsset();
+        uint256 totalAsset = totalReksadanaAsset();
+
         // total shares
         uint256 totalShares = totalSupply();
+
         // hitung shares yang didaptkan
         uint256 shares;
         if (totalShares == 0) {
@@ -105,11 +97,114 @@ contract Reksadana is ERC20 {
         } else {
             shares = (amount * totalShares) / totalAsset;
         }
+
+        // transfer usdc dari user ke reksadana
+        IERC20(usdc).transferFrom(msg.sender, address(this), amount);
+
         // shares dikirim ke user
         _mint(msg.sender, shares);
 
-        // ambil usdc dari user
+        // Hitung amount in
+        uint256 amountIn = amount / 2;
+
         // transfer usdc dari user ke uniswap untuk convert ke weth
+        IERC20(usdc).approve(uniswapRouter, amount);
+        ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
+            .ExactInputSingleParams({
+                tokenIn: usdc,
+                tokenOut: weth,
+                fee: 500,
+                recipient: address(this),
+                deadline: block.timestamp,
+                amountIn: amountIn,
+                amountOutMinimum: 0,
+                sqrtPriceLimitX96: 0
+            });
+        ISwapRouter(uniswapRouter).exactInputSingle(params);
+
         // transfer usdc dari user ke uniswap untuk convert ke wbtc
+        IERC20(usdc).approve(uniswapRouter, amount);
+        params = ISwapRouter.ExactInputSingleParams({
+            tokenIn: usdc,
+            tokenOut: wbtc,
+            fee: 500,
+            recipient: address(this),
+            deadline: block.timestamp,
+            amountIn: amountIn,
+            amountOutMinimum: 0,
+            sqrtPriceLimitX96: 0
+        });
+        ISwapRouter(uniswapRouter).exactInputSingle(params);
+
+        // Emit event
+        emit Deposit(msg.sender, amount, shares);
+    }
+
+    function withdraw(uint256 shares) external {
+        // validation shares tidak boleh 0
+        if (shares == 0) {
+            revert ZeroAmount();
+        }
+
+        // validation user memiliki shares yang cukup
+        if (balanceOf(msg.sender) < shares) {
+            revert InsufficientBalance();
+        }
+
+        // ambil total shares
+        uint256 totalShares = totalSupply();
+
+        // Denomination for percentage
+        uint256 PERCENTAGE_DENOMINATION = 100e16;
+
+        // hitung proporsi asset yang akan diambil
+        uint proportion = (shares * PERCENTAGE_DENOMINATION) / totalShares;
+
+        // hitung jumlah wbtc yang mau dijual
+        uint256 wbtcToSell = (IERC20(wbtc).balanceOf(address(this)) *
+            proportion) / PERCENTAGE_DENOMINATION;
+
+        // hitung jumlah weth yang mau dijual
+        uint256 wethToSell = (IERC20(weth).balanceOf(address(this)) *
+            proportion) / PERCENTAGE_DENOMINATION;
+
+        // ambil shares user by burning
+        _burn(msg.sender, shares);
+
+        // swap wbtc ke uniswap untuk convert ke usdc
+        IERC20(wbtc).approve(uniswapRouter, wbtcToSell);
+        ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
+            .ExactInputSingleParams({
+                tokenIn: wbtc,
+                tokenOut: usdc,
+                fee: 500,
+                recipient: address(this),
+                deadline: block.timestamp,
+                amountIn: wbtcToSell,
+                amountOutMinimum: 0,
+                sqrtPriceLimitX96: 0
+            });
+        ISwapRouter(uniswapRouter).exactInputSingle(params);
+
+        // swap weth ke uniswap untuk convert ke usdc
+        IERC20(weth).approve(uniswapRouter, wethToSell);
+        params = ISwapRouter.ExactInputSingleParams({
+            tokenIn: weth,
+            tokenOut: usdc,
+            fee: 500,
+            recipient: address(this),
+            deadline: block.timestamp,
+            amountIn: wethToSell,
+            amountOutMinimum: 0,
+            sqrtPriceLimitX96: 0
+        });
+        ISwapRouter(uniswapRouter).exactInputSingle(params);
+
+        // transfer usdc dari reksadana ke user
+        uint256 amount = IERC20(usdc).balanceOf(address(this));
+        IERC20(usdc).transfer(msg.sender, amount);
+
+        // emit event
+        emit Withdraw(msg.sender, shares, amount);
     }
 }
